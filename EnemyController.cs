@@ -16,6 +16,12 @@ public class EnemyController : MonoBehaviour
     public float ragdollVelocityThreshold = 10f;
     public string MonsterType;
 
+    [Header("Magic Vulnerabilities and Resistances")]
+    public float FireDamage;
+    public float IceDamage;
+    public float LightningDamage;
+    public float ForceDamage;
+
     [Header("Component References")]
     public Rigidbody rb;
     public Animator animator;
@@ -30,6 +36,7 @@ public class EnemyController : MonoBehaviour
     {
         player = GameObject.FindWithTag("Player"); // It's safer to use tags to find the player
         // Initialize the ragdollRigidbodies list and disable all inner Rigidbodies initially
+        mainCollider.enabled = true;
         foreach (Rigidbody childRigidbody in GetComponentsInChildren<Rigidbody>())
         {
             if (childRigidbody != rb) // Ignore the main Rigidbody
@@ -50,7 +57,7 @@ public class EnemyController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (isRagdoll == true)
+        if (isRagdoll == true && health > 0f)
         {
             downtime -= 1f * Time.deltaTime;
             if (downtime < 0f)
@@ -149,14 +156,17 @@ public class EnemyController : MonoBehaviour
     }
 
     private void Die()
-    {
-        animator.SetTrigger("Die");
+    {        
         GoRagdoll();
+        animator.SetTrigger("Die");
+
         DropLoot();
+        Destroy(gameObject, 10);
     }
 
     private void GoRagdoll()
     {
+        animator.enabled = false;
         isRagdoll = true;
         // Deactivate main collider and Rigidbody
         mainCollider.enabled = false;
@@ -171,7 +181,7 @@ public class EnemyController : MonoBehaviour
             childCollider.enabled = true;
         }
         // Deactivate the Animator to enable the ragdoll effect
-        animator.enabled = false;
+
     }
     private void UnRagdoll()
     {
@@ -212,11 +222,13 @@ public class EnemyController : MonoBehaviour
 
     public void TakeDamage(float damageAmount)
     {
-        health -= damageAmount;
+        if (isRagdoll == true) return;
         if (health <= 0)
         {
             Die();
         }
+        health -= damageAmount;
+
     }
 
     private void OnCollisionEnter(Collision collision)
@@ -233,4 +245,61 @@ public class EnemyController : MonoBehaviour
             downtime = collision.relativeVelocity.magnitude;
         }
     }
+
+    private void OnParticleCollision(GameObject other)
+    {
+       // LayerMask mask = LayerMask.GetMask("Ground");
+        // Check if the particles are on the Magic layer
+        if (other.layer == LayerMask.NameToLayer("Magic"))
+        {
+            // Check the tag of the particles and call the respective reaction function
+            if (other.CompareTag("Fire"))
+            {
+                ReactToFire();
+                TakeDamage(FireDamage);
+            }
+            else if (other.CompareTag("Ice"))
+            {
+                ReactToIce();
+                TakeDamage(IceDamage);
+            }
+            else if (other.CompareTag("Lightning"))
+            {
+                ReactToLightning();
+                TakeDamage(LightningDamage);
+            }
+            else if (other.CompareTag("Force"))
+            {
+                ReactToForce();
+                TakeDamage(ForceDamage);
+            }
+        }
+    }
+
+    // Placeholder methods for reactions to each element type
+    private void ReactToFire()
+    {
+        Debug.Log("Burning");
+
+        // Implement fire reaction logic here
+    }
+
+    private void ReactToIce()
+    {
+        Debug.Log("Freezing");
+        // Implement ice reaction logic here
+    }
+
+    private void ReactToLightning()
+    {
+        Debug.Log("Shocked");
+        // Implement lightning reaction logic here
+    }
+
+    private void ReactToForce()
+    {
+        Debug.Log("Forced");
+        // Implement force reaction logic here
+    }
+
 }
