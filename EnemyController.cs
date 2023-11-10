@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -7,12 +8,15 @@ public class EnemyController : MonoBehaviour
 {
     [Header("Enemy Settings")]
     public float health = 100f;
+    public int Damage = 10;
     public float downtime;
     public List<GameObject> lootItems;
     public GameObject player;
     public LayerMask wallLayer;
     public float attackRange = 2f; // Adjustable attack range
     public float moveSpeed = 2f;
+    public float detourDistance = 20f; // Distance to detour from the obstacle
+    private GameObject currentTarget;
     public float ragdollVelocityThreshold = 10f;
     public string MonsterType;
 
@@ -28,15 +32,22 @@ public class EnemyController : MonoBehaviour
     public Collider mainCollider;
     public List<Rigidbody> ragdollRigidbodies;
     public List<Collider> ragdollColliders;
+    public Vector3 colliderCenter;
 
     private bool isRagdoll = false;
     private bool Obstacled = false;
 
     public void Start()
     {
-        player = GameObject.FindWithTag("Player"); // It's safer to use tags to find the player
+        player = GameObject.FindWithTag("Player");
+        /*        player = GameObject.FindWithTag("Target");
+                if (player == null)
+                {
+                    player = GameObject.FindWithTag("Player"); // It's safer to use tags to find the player
+                }*/
         // Initialize the ragdollRigidbodies list and disable all inner Rigidbodies initially
         mainCollider.enabled = true;
+        colliderCenter = mainCollider.bounds.center;
         foreach (Rigidbody childRigidbody in GetComponentsInChildren<Rigidbody>())
         {
             if (childRigidbody != rb) // Ignore the main Rigidbody
@@ -57,6 +68,17 @@ public class EnemyController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        colliderCenter = mainCollider.bounds.center;
+        FindAndSetTarget();
+
+        if (currentTarget != null)
+        {
+            MoveTowardsTargetOrObstacle();
+        }
+        if (currentTarget == null)
+        {
+            currentTarget = player;
+        }
         if (isRagdoll == true && health > 0f)
         {
             downtime -= 1f * Time.deltaTime;
@@ -66,70 +88,188 @@ public class EnemyController : MonoBehaviour
             }
         }
         if (health <= 0 || isRagdoll) return; // If dead or ragdolled, no further action.
-
+/*
         var directionToPlayer = player.transform.position - transform.position;
-        bool wallBetween = Physics.Raycast(transform.position, directionToPlayer.normalized, directionToPlayer.magnitude, wallLayer);
+        bool wallBetween = Physics.Raycast(colliderCenter, directionToPlayer.normalized, directionToPlayer.magnitude, wallLayer);
 
-        if (!wallBetween && directionToPlayer.magnitude < attackRange)
+        if ((!wallBetween || ((1 << player.layer) & wallLayer) != 0) && directionToPlayer.magnitude < attackRange)
         {
             Attack();
         }
-        else if (!wallBetween)
+        else if ((!wallBetween || ((1 << player.layer) & wallLayer) != 0))
         {
             MoveTowardsPlayer(directionToPlayer);
         }
-        if(wallBetween)
+        if ((wallBetween && (((1 << player.layer) & wallLayer) == 0)) || player == null)
         {
-            //   Ray rayLeft = new Ray(leftHand.transform.position, leftHand.transform.forward);
-            //RaycastHit hitLeft;
-
-            //if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, objectmask))
-            Ray rayForward = new Ray(transform.position, transform.forward);
+            Ray rayForward = new Ray(colliderCenter, directionToPlayer);
             RaycastHit hit;
-            if (Physics.Raycast(rayForward, out hit, Mathf.Infinity, wallLayer))
+            // Consider using a specific range instead of Mathf.Infinity
+            float maxDistance = 100f; // Example max distance
+            if (Physics.Raycast(rayForward, out hit, maxDistance, wallLayer))
             {
-                MoveTowardsAndAttack(hit.point);
+               // Debug.Log("I see a wall: " + hit.collider.name); // To ensure we hit the right object
+                player = hit.collider.gameObject;
             }
+            else
+            {
+                player = GameObject.FindWithTag("Target");
+                // Debug.Log("Raycast did not hit a wall");
+            }
+            Debug.DrawRay(rayForward.origin, rayForward.direction * maxDistance, Color.red, 1.0f); // Visualize the Raycast
         }
+*/
 
     }
     
-    private void MoveTowardsAndAttack(Vector3 target)
+   // private void MoveTowardsAndAttack(Vector3 target)
+   // {
+     //   if ((transform.position - target).magnitude > attackRange)
+       // {
+         //   animator.SetBool("IsWalking", true);
+           // animator.SetBool("Attack", false);
+            //if (MonsterType == "Skeleton")
+            //{
+              //  animator.SetFloat("speedh", 1f);
+                //animator.SetFloat("speedv", 1f);
+            //}
+            //rb.AddForce(transform.forward * moveSpeed, ForceMode.Force);
+           // rb.MovePosition(transform.position + (transform.forward * moveSpeed * Time.fixedDeltaTime)) ;
+       // } else
+        //{
+          //  Debug.Log("I'm Attacking an Obstacle");
+            //animator.SetBool("IsWalking", false);
+            //animator.SetBool("Attack", true);
+            //if (MonsterType == "Skeleton")
+            //{
+              //  animator.SetFloat("speedh", 0f);
+                //animator.SetFloat("speedv", 0f);
+            //}
+        //}
+        //Obstacled = true;
+    //}
+
+    private void FindAndSetTarget()
     {
-        if ((transform.position - target).magnitude > attackRange)
+        GameObject[] targets = GameObject.FindGameObjectsWithTag("Target");
+        if (targets.Length > 0)
         {
-            animator.SetBool("IsWalking", true);
-            animator.SetBool("Attack", false);
-            if (MonsterType == "Skeleton")
+            currentTarget = GetClosestTarget(targets);
+        } 
+        else
+        {
+            currentTarget = player;
+        }
+    }
+
+    GameObject GetClosestTarget(GameObject[] targets)
+    {
+        return targets
+            .OrderBy(t => (t.transform.position - transform.position).sqrMagnitude)
+            .FirstOrDefault();
+    }
+
+    void MoveTowardsTargetOrObstacle()
+    {
+        Vector3 directionToTarget = currentTarget.transform.position - transform.position;
+        RaycastHit hit;
+
+        if (Physics.Raycast(colliderCenter, directionToTarget.normalized, out hit, 10f, wallLayer))
+        {
+            if (hit.collider.CompareTag("Destructible"))
             {
-                animator.SetFloat("speedh", 1f);
-                animator.SetFloat("speedv", 1f);
+                AttackOrMoveToDestructible(hit.collider.gameObject);
             }
-            rb.MovePosition(transform.position + (transform.forward * moveSpeed * Time.fixedDeltaTime));
-        } else
-        {
-            Debug.Log("I'm Attacking an Obstacle");
-            animator.SetBool("IsWalking", false);
-            animator.SetBool("Attack", true);
-            if (MonsterType == "Skeleton")
+            else
             {
-                animator.SetFloat("speedh", 0f);
-                animator.SetFloat("speedv", 0f);
+               // Debug.Log("Need to Move Around");
+                NavigateAroundObstacle(hit.normal);
             }
         }
-        Obstacled = true;
+        else
+        {
+            MoveTowards(currentTarget.transform.position);
+            if(directionToTarget.magnitude <= attackRange)
+            {
+                Attack(currentTarget);
+            }
+        }
     }
-    private void MoveTowardsPlayer(Vector3 direction)
+
+    void AttackOrMoveToDestructible(GameObject destructible)
     {
+        // var directionToPlayer = currentTarget.transform.position - transform.position;
+        Ray rayForward = new Ray(colliderCenter, transform.forward);
+        //Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
+        RaycastHit hit;
+        // Consider using a specific range instead of Mathf.Infinity
+        float maxDistance = attackRange; // Example max distance
+        if (Physics.Raycast(rayForward, out hit, maxDistance, wallLayer))
+        {
+            Attack(destructible);
+        }
+        else
+        {
+            MoveTowards(destructible.transform.position);
+        }
+    }
+
+    void MoveTowards(Vector3 targetPosition)
+    {
+        Vector3 direction = targetPosition - transform.position;
+        Vector3 flatDirection = new Vector3(direction.x, 0f, direction.z).normalized;
+
         animator.SetBool("IsWalking", true);
         animator.SetBool("Attack", false);
-        if(MonsterType == "Skeleton")
+
+        if (MonsterType == "Skeleton")
         {
             animator.SetFloat("speedh", 1f);
             animator.SetFloat("speedv", 1f);
         }
         RotateTowardsPlayer(direction);
-        rb.MovePosition(transform.position + (direction.normalized * moveSpeed * Time.fixedDeltaTime));
+        rb.AddForce(flatDirection * moveSpeed, ForceMode.Force);
+
+        //  Vector3 newPosition = Vector3.MoveTowards(rb.position, targetPosition, moveSpeed * Time.deltaTime);
+        // rb.MovePosition(newPosition);
+
+        /*     
+              animator.SetBool("IsWalking", true);
+              animator.SetBool("Attack", false);
+              if (MonsterType == "Skeleton")
+              {
+                  animator.SetFloat("speedh", 1f);
+                  animator.SetFloat("speedv", 1f);
+              }
+              RotateTowardsPlayer(direction);
+              rb.AddForce(flatDirection * moveSpeed, ForceMode.Force);
+              //  rb.MovePosition(transform.position + (direction.normalized * moveSpeed * Time.fixedDeltaTime));
+      */
+    }
+
+    void NavigateAroundObstacle(Vector3 hitNormal)
+    {
+        //Debug.Log("Navigating Around Obstacle");
+        // Determine detour direction
+        Vector3 detourDirection = Vector3.Cross(hitNormal, Vector3.up).normalized;
+        Vector3 detourPoint = transform.position + detourDirection * detourDistance;
+        Debug.DrawRay(gameObject.transform.position, detourDirection * detourDistance, Color.red, 1.0f);
+        // Move towards the detour point
+        MoveTowards(detourPoint);
+    }
+
+    void Attack(GameObject destructible)
+    {
+        // Implement the attack logic specific to your game
+        animator.SetBool("IsWalking", false);
+        if (MonsterType == "Skeleton")
+        {
+            animator.SetFloat("speedh", 0f);
+            animator.SetFloat("speedv", 0f);
+        }
+        animator.SetBool("Attack", true);
+        RotateTowardsPlayer(currentTarget.transform.position - transform.position);
+        // Implement additional logic here to deal damage to the player if needed
     }
 
     private void RotateTowardsPlayer(Vector3 direction)
@@ -142,18 +282,9 @@ public class EnemyController : MonoBehaviour
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, moveSpeed * Time.fixedDeltaTime);
     }
 
-    private void Attack()
-    {
-        animator.SetBool("IsWalking", false);
-        if (MonsterType == "Skeleton")
-        {
-            animator.SetFloat("speedh", 0f);
-            animator.SetFloat("speedv", 0f);
-        }
-        animator.SetBool("Attack", true);
-        RotateTowardsPlayer(player.transform.position - transform.position);
-        // Implement additional logic here to deal damage to the player if needed
-    }
+
+
+    
 
     private void Die()
     {        
@@ -185,7 +316,6 @@ public class EnemyController : MonoBehaviour
     }
     private void UnRagdoll()
     {
-        Debug.Log("Standing up now.");
         isRagdoll = false;
         // Deactivate main collider and Rigidbody
         mainCollider.enabled = true;
@@ -233,15 +363,18 @@ public class EnemyController : MonoBehaviour
 
     private void OnCollisionEnter(Collision collision)
     {
-        if (Obstacled == true)
+       /* if (Obstacled == true)
         {
-            Attack();
+           // Attack();
+        }*/
+       if(collision.collider.CompareTag("Destructible"))
+        {
+            Attack(collision.collider.gameObject);
         }
         if (collision.relativeVelocity.magnitude > ragdollVelocityThreshold && !isRagdoll)
         {
             GoRagdoll();
             TakeDamage(collision.relativeVelocity.magnitude);
-            Debug.Log("Damage taken: " + collision.relativeVelocity.magnitude);
             downtime = collision.relativeVelocity.magnitude;
         }
     }
@@ -279,27 +412,38 @@ public class EnemyController : MonoBehaviour
     // Placeholder methods for reactions to each element type
     private void ReactToFire()
     {
-        Debug.Log("Burning");
 
         // Implement fire reaction logic here
     }
 
     private void ReactToIce()
     {
-        Debug.Log("Freezing");
         // Implement ice reaction logic here
     }
 
     private void ReactToLightning()
     {
-        Debug.Log("Shocked");
         // Implement lightning reaction logic here
     }
 
     private void ReactToForce()
     {
-        Debug.Log("Forced");
         // Implement force reaction logic here
+    }
+    public void DealDamage()
+    {
+        
+       // var directionToPlayer = currentTarget.transform.position - transform.position;
+        Ray rayForward = new Ray(colliderCenter, transform.forward);
+        Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
+        RaycastHit hit;
+        // Consider using a specific range instead of Mathf.Infinity
+        float maxDistance = attackRange; // Example max distance
+        if (Physics.Raycast(rayForward, out hit, maxDistance) && (hit.collider.CompareTag("Destructible") || hit.collider.CompareTag("Target")))
+        {
+            hit.collider.gameObject.SendMessage("TakeDamage", Damage);
+            Debug.Log("Skelly Dealing Damage");
+        }
     }
 
 }

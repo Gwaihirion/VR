@@ -22,6 +22,7 @@ public class Magic : MonoBehaviour
     public GameObject forceFieldParticle2Prefab;
     public GameObject leftHand;
     public GameObject rightHand;
+    public GameObject CenterEyeTracker;
     public ParticleSystem FireBeam;
     public ParticleSystem IceBeam;
     public ParticleSystem LightningBeam;
@@ -30,6 +31,9 @@ public class Magic : MonoBehaviour
     public ParticleSystem IceGather;
     public ParticleSystem LightningGather;
     public ParticleSystem ForceGather;
+
+    public ParticleSystemForceField LeftField;
+    public ParticleSystemForceField RightField;
 
     private GameObject activeBeam;//
     private GameObject activeBlade;
@@ -43,12 +47,23 @@ public class Magic : MonoBehaviour
     private Transform LtelekinesisPoint;
     public GameObject TelekinesisPointer;
     public GameObject TelekinesisPointer2;
+    public GameObject NosePointer;
+
+    public GameObject LightningBlast;
+    public GameObject FireBlast;
+    private float LightningTimer = 0f;
+
+    public float maxControllerDistance = 10f;
+    public float LightningStrokeSpeed;
 
     public string Gripper;
 
     public float forceMultiplier = 10f; // Adjust the force applied to the player
     private Rigidbody rb;
     private float timer;
+
+   /* private Vector3 previousLeftHandPosition;
+    private Vector3 previousRightHandPosition;*/
 
     void Start()
     {
@@ -66,10 +81,48 @@ public class Magic : MonoBehaviour
         IceGather.Stop();
         LightningGather.Stop();
         ForceGather.Stop();
+        LeftField.gravity = 0f;
+        RightField.gravity = 0f;//
+        /*previousLeftHandPosition = leftHand.transform.position;
+        previousRightHandPosition = rightHand.transform.position;*/
     }
 
     void Update()
     {
+        /*Vector3 LeftHandVelocity = (leftHand.transform.position - previousLeftHandPosition) / Time.deltaTime;
+        LeftHandSpeed = LeftHandVelocity.magnitude;
+        previousLeftHandPosition = LeftHand.transform.position;
+
+        Vector3 RightHandVelocity = (rightHand.transform.position - previousRightHandPosition) / Time.deltaTime;
+        RightHandSpeed = RightHandVelocity.magnitude;
+        previousRightHandPosition = rightHand.transform.position*/;
+
+        // Retrieve the positions of both controllers
+        Vector3 leftControllerPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.LTouch);
+        Vector3 rightControllerPosition = OVRInput.GetLocalControllerPosition(OVRInput.Controller.RTouch);
+        Vector3 centerPosition = CenterEyeTracker.transform.localPosition;
+
+        // Compute the distance between the controllers
+        float distance = Vector3.Distance(leftControllerPosition, rightControllerPosition);
+        float LeftCenterDistance = Vector3.Distance(leftControllerPosition, centerPosition);
+        float RightCenterDistance = Vector3.Distance(rightControllerPosition, centerPosition);
+
+        LeftField.directionZ = MapDistanceToForce(LeftCenterDistance) * 5;
+        RightField.directionZ = MapDistanceToForce(RightCenterDistance) * 5;
+
+        // Map the distance to gravity strength (modify this mapping as needed)
+        if (Lightning || Force)
+        {
+            Debug.Log("Current Left Hand Distance = " + LeftCenterDistance);
+            
+            LeftField.gravity = MapDistanceToGravity(distance);
+        } else { LeftField.gravity = 0f; }
+
+        if (Fire || Ice)
+        {
+            RightField.gravity = MapDistanceToGravity(distance);
+        } else { RightField.gravity = 0f; }
+
         HandleMagicGathering();
         HandleMagicInteractions();
         IceBeam.transform.position = rightHand.transform.position;
@@ -106,13 +159,40 @@ public class Magic : MonoBehaviour
 
     }
 
+    float MapDistanceToGravity(float distance)
+    {
+        distance = Mathf.Clamp(distance, 0f, maxControllerDistance);
+
+        // Invert the distance to map it to gravity: Close distance yields high gravity, far distance yields negative gravity
+        return Mathf.Lerp(3f, 0f, distance / maxControllerDistance);
+    }
+    float MapDistanceToForce(float distance)
+    {
+        distance = Mathf.Clamp(distance, 0f, maxControllerDistance);
+
+        // Invert the distance to map it to gravity: Close distance yields high gravity, far distance yields negative gravity
+        return Mathf.Lerp(0f, 3f, distance / maxControllerDistance);
+    }
+
     void FixedUpdate()
     {
+        LayerMask EyeMask = LayerMask.GetMask("Ground", "Enemies", "Walls");
+        Ray EyeRays = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+        RaycastHit hit1;
+        if (Physics.Raycast(EyeRays, out hit1, Mathf.Infinity, EyeMask))
+        {
+            NosePointer.transform.position = hit1.point;
+        }
+
         //Player movement
         Vector2 input = OVRInput.Get(OVRInput.Axis2D.PrimaryThumbstick);
         Vector3 forceDirection = transform.forward * input.y + transform.right * input.x;
         rb.AddForce(forceDirection.normalized * forceMultiplier, ForceMode.Force);
-        if(forceDirection.magnitude > 0)
+
+        Vector2 input2 = OVRInput.Get(OVRInput.Axis2D.SecondaryThumbstick);
+        Vector3 forceDirection2 = transform.up * input2.y;
+        rb.AddForce(forceDirection2.normalized * forceMultiplier*2, ForceMode.Force);
+        if (forceDirection.magnitude > 0)
         {
             Moving = true;
         } 
@@ -120,6 +200,34 @@ public class Magic : MonoBehaviour
         {
             Moving = false;
         }
+
+        if(Lightning && HandMotionTracker.LeftHandSpeed > LightningStrokeSpeed && HandMotionTracker.SimplifiedLeftHandDirection.Contains("Down") )
+        {
+            LayerMask mask = LayerMask.GetMask("Ground", "Enemies", "Walls");
+            Ray LightningBlastRay = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+            RaycastHit hit;
+            if (Physics.Raycast(LightningBlastRay, out hit, Mathf.Infinity, mask) && LightningTimer < 0f)
+            {
+                GameObject Stroke;
+                Stroke = Instantiate(LightningBlast, hit.point, Quaternion.identity);
+                LightningTimer = 1f;
+            }
+            
+        }
+        if (Fire && HandMotionTracker.RightHandSpeed > LightningStrokeSpeed && HandMotionTracker.SimplifiedRightHandDirection.Contains("Up"))
+        {
+            LayerMask mask = LayerMask.GetMask("Ground", "Enemies", "Walls");
+            Ray FireBlastRay = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+            RaycastHit hit;
+            if (Physics.Raycast(FireBlastRay, out hit, Mathf.Infinity, mask) && LightningTimer < 0f)
+            {
+                GameObject Blammo;
+                Blammo = Instantiate(FireBlast, hit.point, Quaternion.identity);
+                LightningTimer = 1f;
+            }
+
+        }
+        LightningTimer -= 1f * Time.deltaTime;
 
     }
 
@@ -562,6 +670,13 @@ public class Magic : MonoBehaviour
         }
 
     }
+    public void Loot(string LootType)
+    {
+        if (LootType == "Firemote")
+        {
+            Debug.Log("Fire Mote Picked Up");
+        }
+    }
 }
 
 public enum MagicType
@@ -580,3 +695,4 @@ public enum MagicState
     Infusing,
     Telekinesing
 }
+

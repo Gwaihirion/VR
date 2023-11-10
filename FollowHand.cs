@@ -80,9 +80,9 @@ public class FollowHand : MonoBehaviour
             OrbTypes[4].SetActive(true);
             OrbTypes[0].SetActive(false);
         }
-        scaleChange = new Vector3(0.005f, 0.005f, 0.005f);
+        scaleChange = new Vector3(0.002f, 0.002f, 0.002f);
         BigSize += scaleChange;
-        transform.localScale = BigSize/5f;
+        transform.localScale = BigSize;
         if ((TargetHandName == "right" && OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger)) || (TargetHandName == "left" && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger)))
         {
             if (gameObject.name != "Lorb" && gameObject.name != "Rorb")
