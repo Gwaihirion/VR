@@ -7,6 +7,12 @@ public class Magic : MonoBehaviour
     public MagicType currentMagicType = MagicType.None;
     public MagicState currentMagicState = MagicState.Idle;
 
+    public static bool isFire { get; private set; }
+    public static bool isIce { get; private set; }
+    public static bool isLightning { get; private set; }
+    public static bool isForce { get; private set; }
+    public static float IceCountPublic { get; private set; }
+
     public bool Fire;
     public bool Ice;
     public bool Lightning;
@@ -14,7 +20,7 @@ public class Magic : MonoBehaviour
 
     public bool Moving;
 
-    public Rigidbody Gripped;
+    public Rigidbody Gripped = null;
     public GameObject beamParticlePrefab;
     public GameObject bladeParticlePrefab;
     public GameObject forceFieldParticlePrefab;
@@ -48,6 +54,17 @@ public class Magic : MonoBehaviour
     public GameObject TelekinesisPointer;
     public GameObject TelekinesisPointer2;
     public GameObject NosePointer;
+    public GameObject TelekinesisParticleSpawner;
+    public ParticleSystem TelekinesisParticles;
+
+    public float FireCount;
+    public float LightningCount;
+    public float IceCount;
+    public float ForceCount;
+    public float MaxFire;
+    public float MaxLightning;
+    public float MaxIce;
+    public float MaxForce;
 
     public GameObject LightningBlast;
     public GameObject FireBlast;
@@ -82,13 +99,34 @@ public class Magic : MonoBehaviour
         LightningGather.Stop();
         ForceGather.Stop();
         LeftField.gravity = 0f;
-        RightField.gravity = 0f;//
+        RightField.gravity = 0f;
+
+        FireCount = 10f;
+        IceCount = 10f;
+        LightningCount = 10f;
+        ForceCount = 10f;
+
         /*previousLeftHandPosition = leftHand.transform.position;
         previousRightHandPosition = rightHand.transform.position;*/
     }
 
     void Update()
     {
+        if(LtelekinesisPoint)
+        {
+            TelekinesisParticleSpawner.transform.position = LtelekinesisPoint.transform.position;
+            TelekinesisParticles.Play();
+        }
+        if(RtelekinesisPoint)
+        {
+            TelekinesisParticleSpawner.transform.position = RtelekinesisPoint.transform.position;
+            TelekinesisParticles.Play();
+        }
+        if(!RtelekinesisPoint && !LtelekinesisPoint)
+        {
+            TelekinesisParticleSpawner.transform.position = transform.position;
+            TelekinesisParticles.Stop();
+        }
         /*Vector3 LeftHandVelocity = (leftHand.transform.position - previousLeftHandPosition) / Time.deltaTime;
         LeftHandSpeed = LeftHandVelocity.magnitude;
         previousLeftHandPosition = LeftHand.transform.position;
@@ -107,20 +145,24 @@ public class Magic : MonoBehaviour
         float LeftCenterDistance = Vector3.Distance(leftControllerPosition, centerPosition);
         float RightCenterDistance = Vector3.Distance(rightControllerPosition, centerPosition);
 
-        LeftField.directionZ = MapDistanceToForce(LeftCenterDistance) * 5;
-        RightField.directionZ = MapDistanceToForce(RightCenterDistance) * 5;
+        LeftField.directionZ = MapDistanceToForce(LeftCenterDistance);
+        RightField.directionZ = MapDistanceToForce(RightCenterDistance);
 
         // Map the distance to gravity strength (modify this mapping as needed)
         if (Lightning || Force)
         {
-            Debug.Log("Current Left Hand Distance = " + LeftCenterDistance);
+            //Debug.Log("Current Left Hand Distance = " + LeftCenterDistance);
             
-            LeftField.gravity = MapDistanceToGravity(distance);
+            LeftField.gravity = MapDistanceToGravity(distance, 5f);
+            LeftField.endRange = distance*20f;
+            RightField.endRange = distance * 20f;
         } else { LeftField.gravity = 0f; }
 
         if (Fire || Ice)
         {
-            RightField.gravity = MapDistanceToGravity(distance);
+            RightField.gravity = MapDistanceToGravity(distance, 5f);
+            RightField.endRange = distance*20f;
+            LeftField.endRange = distance * 20f;
         } else { RightField.gravity = 0f; }
 
         HandleMagicGathering();
@@ -155,27 +197,89 @@ public class Magic : MonoBehaviour
             LightningGather.Stop();
             ForceGather.Stop();
         }
+        if (!OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+        {
+            Gripped = null;
+            if(RtelekinesisPoint)
+            {
+                Destroy(RtelekinesisPoint.gameObject);
+            }
+            if(LtelekinesisPoint)
+            {
+                Destroy(LtelekinesisPoint.gameObject);
+            }    
+        }
 
 
     }
 
-    float MapDistanceToGravity(float distance)
+    float MapDistanceToGravity(float distance, float max)
     {
         distance = Mathf.Clamp(distance, 0f, maxControllerDistance);
 
         // Invert the distance to map it to gravity: Close distance yields high gravity, far distance yields negative gravity
-        return Mathf.Lerp(3f, 0f, distance / maxControllerDistance);
+        return Mathf.Lerp(max, 0f, distance / maxControllerDistance);
     }
     float MapDistanceToForce(float distance)
     {
         distance = Mathf.Clamp(distance, 0f, maxControllerDistance);
 
         // Invert the distance to map it to gravity: Close distance yields high gravity, far distance yields negative gravity
-        return Mathf.Lerp(0f, 3f, distance / maxControllerDistance);
+        return Mathf.Lerp(-5f, 7f, distance / maxControllerDistance);
     }
 
     void FixedUpdate()
     {
+        //Track mana amounts for different spells, alter emission rates for each
+        FireCount = Mathf.Clamp(FireCount, 0, MaxFire);
+        IceCount = Mathf.Clamp(IceCount, 0, MaxIce);
+        LightningCount = Mathf.Clamp(LightningCount, 0, MaxLightning);
+        ForceCount = Mathf.Clamp(ForceCount, 0, MaxForce);
+        IceCountPublic = IceCount;
+
+        if (Fire == true)
+        {
+            FireCount -= 1 * Time.deltaTime;
+            var FireG = FireGather.emission;
+            var FireB = FireBeam.emission;
+
+            FireG.rateOverTime = FireCount;
+            FireB.rateOverTime = FireCount;
+        }
+        if (Ice == true)
+        {
+            IceCount -= 1 * Time.deltaTime;
+            var IceG = IceGather.emission;
+            var IceB = IceBeam.emission;
+
+            IceG.rateOverTime = IceCount;
+            IceB.rateOverTime = IceCount;
+        }
+        if (Lightning == true)
+        {
+            LightningCount -= 1 * Time.deltaTime;
+            var LightningG = LightningGather.emission;
+            var LightningB = LightningBeam.emission;
+
+            LightningG.rateOverTime = LightningCount;
+            LightningB.rateOverTime = LightningCount;
+        }
+        if (Force == true)
+        {
+            ForceCount -= 1 * Time.deltaTime;
+            var ForceG = ForceGather.emission;
+            var ForceB = ForceBeam.emission;
+
+            ForceG.rateOverTime = ForceCount;
+            ForceB.rateOverTime = ForceCount;
+        }
+        //Broadcast what magic I'm currently using, for powertowers;
+        isFire = Fire;
+        isIce = Ice;
+        isLightning = Lightning;
+        isForce = Force;
+
+        if(Gripped != null) { ProcessTelekinesisLogic(Gripped); }
         LayerMask EyeMask = LayerMask.GetMask("Ground", "Enemies", "Walls");
         Ray EyeRays = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
         RaycastHit hit1;
@@ -190,7 +294,7 @@ public class Magic : MonoBehaviour
         rb.AddForce(forceDirection.normalized * forceMultiplier, ForceMode.Force);
 
         Vector2 input2 = OVRInput.Get(OVRInput.Axis2D.SecondaryThumbstick);
-        Vector3 forceDirection2 = transform.up * input2.y;
+        Vector3 forceDirection2 = transform.up * input2.y*0.5f;
         rb.AddForce(forceDirection2.normalized * forceMultiplier*2, ForceMode.Force);
         if (forceDirection.magnitude > 0)
         {
@@ -396,8 +500,9 @@ public class Magic : MonoBehaviour
 
     private void HandleTelekinesisLogic()
     {
-        if (currentMagicState != MagicState.Idle && currentMagicState != MagicState.Telekinesing) return;
-        LayerMask objectmask = LayerMask.GetMask("Objects", "Magic");
+        //if (currentMagicState != MagicState.Idle && currentMagicState != MagicState.Telekinesing) return;
+        if (Gripped != null) return;
+        LayerMask objectmask = LayerMask.GetMask("Objects", "Magic", "Default", "Enemies");
         // For the right hand
         Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
         RaycastHit hitRight;
@@ -411,29 +516,27 @@ public class Magic : MonoBehaviour
         {
             Debug.DrawLine(rightHand.transform.position, hitRight.point, Color.red);
             Gripper = "right";
+           // currentMagicState = MagicState.Telekinesing;    
             Gripped = hitRight.collider.GetComponent<Rigidbody>();
-            currentMagicState = MagicState.Telekinesing;
         }
-            ProcessTelekinesisLogic(hitRight, Gripped);
         
          //Process for the left hand
        if (Physics.Raycast(rayLeft, out hitLeft, Mathf.Infinity, objectmask))
        {
           Debug.DrawLine(leftHand.transform.position, hitLeft.point, Color.green);
           Gripper = "left";
+          //currentMagicState = MagicState.Telekinesing;
           Gripped = hitLeft.collider.GetComponent<Rigidbody>();
-          currentMagicState = MagicState.Telekinesing;
 
        }
-           ProcessTelekinesisLogic(hitLeft, Gripped);
     }
 
-    private void ProcessTelekinesisLogic(RaycastHit hit, Rigidbody rb)
+    private void ProcessTelekinesisLogic(Rigidbody rb)
     {
-       // if (Gripped != null)
-       // {
-          //  Rigidbody rb = Gripped;
-       // } 
+        // if (Gripped != null)
+        // {
+        //  Rigidbody rb = Gripped;
+        // } 
         // Rigidbody rb = hit.collider.GetComponent<Rigidbody>();
         if (rb)
         {
@@ -441,50 +544,67 @@ public class Magic : MonoBehaviour
             if (Gripper == "right")
             {
                 Vector3 direction;
+                float speed;
                 if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
                 {
-                    direction = (rightHand.transform.position - rb.transform.position).normalized;
-                    rb.AddForce(direction * 5f, ForceMode.Force);
+                    direction = (RtelekinesisPoint.position - rb.transform.position);
+                    speed = 10f;
+                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+                    
                     if (RtelekinesisPoint == null)
                     {
                         RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rb.transform.position;
-                    } 
-                    else 
+                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude/2));
+                    }
+                    else
                     {
-                        RtelekinesisPoint.position = rb.transform.position;
+                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude/2));
                     }
                 }
                 if (OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
                 {
-                    direction = (rb.transform.position - rightHand.transform.position).normalized;
-                    rb.AddForce(direction * 5f, ForceMode.Force);
+                    direction = (RtelekinesisPoint.position - rb.transform.position);
+                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+                    speed = 10f;
                     if (RtelekinesisPoint == null)
                     {
                         RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rb.transform.position;
+                        RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
                     }
                     else
                     {
-                        RtelekinesisPoint.position = rb.transform.position;
+                        RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
                     }
                 }
                 if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
                 {
                     rb.useGravity = false;
                     //rb.velocity = Vector3.zero;
-                   // rb.angularVelocity = Vector3.zero;
+                    // rb.angularVelocity = Vector3.zero;
 
-                    if (RtelekinesisPoint == null)
+                    if (RtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryHandTrigger))
                     {
                         RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rb.transform.position;
+                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * (rb.transform.position - rightHand.transform.position).magnitude);
                     }
+                    
                     direction = (RtelekinesisPoint.position - rb.transform.position);
-                    rb.AddForce(direction * 5f, ForceMode.Force);
+                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+                    LayerMask objectmask = LayerMask.GetMask("Enemies");
+                    // For the right hand
+                    Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
+                    RaycastHit hitRight;
+                    if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, objectmask) && hitRight.collider.GetComponent<Rigidbody>() != rb)
+                    {
+                        RtelekinesisPoint.position = hitRight.point;
+                        rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                    }
                 }
                 if (RtelekinesisPoint && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
                 {
@@ -497,47 +617,50 @@ public class Magic : MonoBehaviour
             if (Gripper == "left")
             {
                 Vector3 direction2;
+                float speed;
                 if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
                 {
-                    direction2 = (leftHand.transform.position - rb.transform.position).normalized;
+                    direction2 = (LtelekinesisPoint.position - rb.transform.position);
+                    speed = 10f;
                     rb.AddForce(direction2 * 5f, ForceMode.Force);
                     if (LtelekinesisPoint == null)
                     {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint2").transform;
+                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = rb.transform.position;
+                        LtelekinesisPoint.position = leftHand.transform.position;
                     }
                     else
                     {
-                        LtelekinesisPoint.position = rb.transform.position;
+                        LtelekinesisPoint.position = leftHand.transform.position;
                     }
                 }
                 if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger))
                 {
-                    direction2 = (rb.transform.position - leftHand.transform.position).normalized;
+                    direction2 = (LtelekinesisPoint.position - rb.transform.position);
                     rb.AddForce(direction2 * 5f, ForceMode.Force);
+                    speed = 10f;
                     if (LtelekinesisPoint == null)
                     {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint2").transform;
+                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = rb.transform.position;
+                        LtelekinesisPoint.position = rb.transform.position + (leftHand.transform.forward * speed);
                     }
                     else
                     {
-                        LtelekinesisPoint.position = rb.transform.position;
+                        LtelekinesisPoint.position = rb.transform.position + (leftHand.transform.forward * speed);
                     }
                 }
                 if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
                 {
                     rb.useGravity = false;
                     //rb.velocity = Vector3.zero;
-                   // rb.angularVelocity = Vector3.zero;
-                    //
-                    if (LtelekinesisPoint == null)
+                    // rb.angularVelocity = Vector3.zero;
+
+                    if (LtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger))
                     {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint2").transform;
+                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
                         LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = rb.transform.position;
+                        LtelekinesisPoint.position = leftHand.transform.position + (leftHand.transform.forward * (rb.transform.position - leftHand.transform.position).magnitude);
                     }
                     direction2 = (LtelekinesisPoint.position - rb.transform.position);
                     rb.AddForce(direction2 * 5f, ForceMode.Force);
@@ -674,8 +797,42 @@ public class Magic : MonoBehaviour
     {
         if (LootType == "Firemote")
         {
-            Debug.Log("Fire Mote Picked Up");
+            FireCount += 10f;
         }
+        if (LootType == "IceMote")
+        {
+            IceCount += 10f;
+        }
+        if (LootType == "LightningMote")
+        {
+            LightningCount += 10f;
+        }
+        if (LootType == "ForceMote")
+        {
+            ForceCount += 10f;
+        }
+    }
+
+    private void OnParticleCollision(GameObject other)
+    {
+            // Check the tag of the particles and call the respective reaction function
+            if (other.CompareTag("TowerFire"))
+            {
+            FireCount++;
+            }
+            else if (other.CompareTag("TowerIce"))
+            {
+            IceCount++;
+            }
+            else if (other.CompareTag("TowerLightning"))
+            {
+            LightningCount++;
+            }
+            else if (other.CompareTag("TowerForce"))
+            {
+            ForceCount++;
+            }
+        
     }
 }
 

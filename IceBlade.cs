@@ -19,7 +19,7 @@ public class IceBlade : MonoBehaviour
     // Update is called once per frame
     void FixedUpdate()
     {
-        emissionModule.rateOverTime = HandMotionTracker.RightHandSpeed*25;
+        emissionModule.rateOverTime = HandMotionTracker.RightHandSpeed*Magic.IceCountPublic;
         mainModule.startLifetime = HandMotionTracker.RightHandSpeed;
         mainModule.startSize = HandMotionTracker.RightHandSpeed*0.65f;
     }

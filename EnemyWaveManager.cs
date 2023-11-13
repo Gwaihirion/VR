@@ -7,6 +7,7 @@ using TMPro;
 
 public class EnemyWaveManager : MonoBehaviour
 {
+    public bool Victory = false;
     [System.Serializable]
     public class Wave
     {
@@ -36,6 +37,10 @@ public class EnemyWaveManager : MonoBehaviour
 
     IEnumerator ManageWaves()
     {
+        if(currentWaveIndex >= waves.Length && AllEnemiesCleared())
+        {
+            Victory = true;
+        }
         while (currentWaveIndex < waves.Length)
         {
             if (!isWaveInProgress)
@@ -65,6 +70,10 @@ public class EnemyWaveManager : MonoBehaviour
                     // Once all enemies are cleared, we're no longer in a wave.
                     isWaveInProgress = false;
                     currentWaveIndex++;
+                    if (currentWaveIndex >= waves.Length)
+                    {
+                        Victory = true;
+                    }
                 }
             }
 

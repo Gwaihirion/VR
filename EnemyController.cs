@@ -7,12 +7,14 @@ using System.Collections.Generic;
 public class EnemyController : MonoBehaviour
 {
     [Header("Enemy Settings")]
+    public bool Dead = false;
     public float health = 100f;
     public int Damage = 10;
     public float downtime;
     public List<GameObject> lootItems;
     public GameObject player;
     public LayerMask wallLayer;
+    public LayerMask AllLayer;
     public float attackRange = 2f; // Adjustable attack range
     public float moveSpeed = 2f;
     public float detourDistance = 20f; // Distance to detour from the obstacle
@@ -68,6 +70,14 @@ public class EnemyController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (transform.position.y < -100f)
+        {
+            Die();
+        }
+        if (rb.velocity.magnitude > 30f)
+        {
+            Die();
+        }
         colliderCenter = mainCollider.bounds.center;
         FindAndSetTarget();
 
@@ -86,6 +96,10 @@ public class EnemyController : MonoBehaviour
             {
                 UnRagdoll();
             }
+        }
+        if (health <= 0 && Dead == false)
+        {
+            Die();
         }
         if (health <= 0 || isRagdoll) return; // If dead or ragdolled, no further action.
 /*
@@ -174,7 +188,10 @@ public class EnemyController : MonoBehaviour
         Vector3 directionToTarget = currentTarget.transform.position - transform.position;
         RaycastHit hit;
 
-        if (Physics.Raycast(colliderCenter, directionToTarget.normalized, out hit, 10f, wallLayer))
+        // Get the radius of the capsule collider
+        float radius = GetComponent<CapsuleCollider>().radius/2;
+
+        if (Physics.SphereCast(colliderCenter, radius, directionToTarget.normalized, out hit, attackRange*2f, wallLayer))
         {
             if (hit.collider.CompareTag("Destructible"))
             {
@@ -182,29 +199,31 @@ public class EnemyController : MonoBehaviour
             }
             else
             {
-               // Debug.Log("Need to Move Around");
+                // Debug.Log("Need to Move Around");
                 NavigateAroundObstacle(hit.normal);
             }
         }
         else
         {
             MoveTowards(currentTarget.transform.position);
-            if(directionToTarget.magnitude <= attackRange)
+            if (directionToTarget.magnitude <= attackRange)
             {
                 Attack(currentTarget);
             }
         }
     }
 
+
     void AttackOrMoveToDestructible(GameObject destructible)
     {
         // var directionToPlayer = currentTarget.transform.position - transform.position;
         Ray rayForward = new Ray(colliderCenter, transform.forward);
-        //Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
+        Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
         RaycastHit hit;
         // Consider using a specific range instead of Mathf.Infinity
+        float radius = GetComponent<CapsuleCollider>().radius/2;
         float maxDistance = attackRange; // Example max distance
-        if (Physics.Raycast(rayForward, out hit, maxDistance, wallLayer))
+        if (Physics.SphereCast(rayForward, radius, out hit, maxDistance, wallLayer))
         {
             Attack(destructible);
         }
@@ -228,8 +247,10 @@ public class EnemyController : MonoBehaviour
             animator.SetFloat("speedv", 1f);
         }
         RotateTowardsPlayer(direction);
-        rb.AddForce(flatDirection * moveSpeed, ForceMode.Force);
-
+        if (!animator.GetCurrentAnimatorStateInfo(0).IsName("Attack1h1"))
+        {
+            rb.AddForce(flatDirection * moveSpeed, ForceMode.Force);
+        } else { rb.velocity = new Vector3(0f, 0f, 0f); }
         //  Vector3 newPosition = Vector3.MoveTowards(rb.position, targetPosition, moveSpeed * Time.deltaTime);
         // rb.MovePosition(newPosition);
 
@@ -253,7 +274,7 @@ public class EnemyController : MonoBehaviour
         // Determine detour direction
         Vector3 detourDirection = Vector3.Cross(hitNormal, Vector3.up).normalized;
         Vector3 detourPoint = transform.position + detourDirection * detourDistance;
-        Debug.DrawRay(gameObject.transform.position, detourDirection * detourDistance, Color.red, 1.0f);
+        //Debug.DrawRay(gameObject.transform.position, detourDirection * detourDistance, Color.red, 1.0f);
         // Move towards the detour point
         MoveTowards(detourPoint);
     }
@@ -287,7 +308,8 @@ public class EnemyController : MonoBehaviour
     
 
     private void Die()
-    {        
+    {
+        Dead = true;
         GoRagdoll();
         animator.SetTrigger("Die");
 
@@ -373,9 +395,10 @@ public class EnemyController : MonoBehaviour
         }
         if (collision.relativeVelocity.magnitude > ragdollVelocityThreshold && !isRagdoll)
         {
-            GoRagdoll();
+            
             TakeDamage(collision.relativeVelocity.magnitude);
             downtime = collision.relativeVelocity.magnitude;
+            GoRagdoll();
         }
     }
 
@@ -386,22 +409,22 @@ public class EnemyController : MonoBehaviour
         if (other.layer == LayerMask.NameToLayer("Magic"))
         {
             // Check the tag of the particles and call the respective reaction function
-            if (other.CompareTag("Fire"))
+            if (other.CompareTag("Fire") || other.CompareTag("TowerFire"))
             {
                 ReactToFire();
                 TakeDamage(FireDamage);
             }
-            else if (other.CompareTag("Ice"))
+            else if (other.CompareTag("Ice") || other.CompareTag("TowerIce"))
             {
                 ReactToIce();
                 TakeDamage(IceDamage);
             }
-            else if (other.CompareTag("Lightning"))
+            else if (other.CompareTag("Lightning") || other.CompareTag("TowerLightning"))
             {
                 ReactToLightning();
                 TakeDamage(LightningDamage);
             }
-            else if (other.CompareTag("Force"))
+            else if (other.CompareTag("Force") || other.CompareTag("TowerForce"))
             {
                 ReactToForce();
                 TakeDamage(ForceDamage);
@@ -432,18 +455,25 @@ public class EnemyController : MonoBehaviour
     }
     public void DealDamage()
     {
-        
-       // var directionToPlayer = currentTarget.transform.position - transform.position;
+        float maxDistance = attackRange * 1.5f; // Example max distance
+        // Retrieve the radius of the capsule collider
+        float radius = GetComponent<CapsuleCollider>().radius/3;
+
         Ray rayForward = new Ray(colliderCenter, transform.forward);
-        Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
+        Debug.DrawRay(rayForward.origin, transform.forward, Color.yellow, maxDistance); 
+       // Debug.DrawRay(rayForward.origin, transform.forward * attackRange, Color.green, 1.0f);
         RaycastHit hit;
-        // Consider using a specific range instead of Mathf.Infinity
-        float maxDistance = attackRange; // Example max distance
-        if (Physics.Raycast(rayForward, out hit, maxDistance) && (hit.collider.CompareTag("Destructible") || hit.collider.CompareTag("Target")))
+
+        
+
+        // Use SphereCast instead of Raycast
+        if (Physics.SphereCast(rayForward, radius, out hit, maxDistance, AllLayer) && (hit.collider.CompareTag("Destructible") || hit.collider.CompareTag("Target")))
         {
+            Debug.DrawRay(rayForward.origin, (hit.point - rayForward.origin), Color.blue, 1.0f);
             hit.collider.gameObject.SendMessage("TakeDamage", Damage);
             Debug.Log("Skelly Dealing Damage");
         }
     }
+
 
 }
