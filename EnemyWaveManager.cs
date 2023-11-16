@@ -8,6 +8,10 @@ using TMPro;
 public class EnemyWaveManager : MonoBehaviour
 {
     public bool Victory = false;
+    public bool SpawnAroundPlayer;
+    public float distance;
+    public float minDistance;
+    public float TrickleTimer;
     [System.Serializable]
     public class Wave
     {
@@ -90,7 +94,7 @@ public class EnemyWaveManager : MonoBehaviour
             for (int i = 0; i < enemy.count; i++)
             {
                 SpawnEnemyAtPoint(enemy.enemyPrefab, enemy.spawnPoint);
-                yield return new WaitForSeconds(0.1f); // Slight delay to stagger spawns if necessary
+                yield return new WaitForSeconds(TrickleTimer); // Slight delay to stagger spawns if necessary
             }
         }
     }
@@ -98,7 +102,7 @@ public class EnemyWaveManager : MonoBehaviour
     void SpawnEnemyAtPoint(GameObject enemyPrefab, Transform spawnPoint)
     {
         Vector3 spawnPos;
-        if (spawnPoint != null)
+        if (spawnPoint != null && SpawnAroundPlayer == false)
         {
             // Spawn the enemy at a random point around the spawn point to avoid overlaps.
             spawnPos = spawnPoint.position + Random.insideUnitSphere * 2; // 2 units radius
@@ -125,6 +129,20 @@ public class EnemyWaveManager : MonoBehaviour
     {
         // Implement your logic to find a random position on the terrain where an enemy can be spawned.
         // Make sure this position is walkable and not overlapping with other objects.
-        return new Vector3(Random.Range(-10f, 10f), 0, Random.Range(-10f, 10f)); // Placeholder values
+        Vector3 point = new Vector3(0, 0, 0);
+        float angle = Random.Range(0, 360) * Mathf.Deg2Rad;
+        float spawnDistance = Random.Range(minDistance, distance);
+        float x = point.x + spawnDistance * Mathf.Cos(angle);
+        float z = point.z + spawnDistance * Mathf.Sin(angle);
+        float y = 0f;
+        Vector3 Syzygy = new Vector3(x, 0f, z);
+        RaycastHit hit;
+        if (Physics.Raycast(Syzygy + Vector3.up * 1000, Vector3.down, out hit, Mathf.Infinity))
+        {
+            y = hit.point.y; // Set y to the hit point's y coordinate
+        }
+
+        return new Vector3(x, y, z);
+        //return new Vector3(Random.Range(-10f, 10f), 0, Random.Range(-10f, 10f)); // Placeholder values
     }
 }

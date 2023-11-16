@@ -4,6 +4,10 @@ using UnityEngine;
 
 public class Magic : MonoBehaviour
 {
+    public Camera portalA;
+    public Transform portalB;
+    public LineRenderer lineRenderer;
+
     public MagicType currentMagicType = MagicType.None;
     public MagicState currentMagicState = MagicState.Idle;
 
@@ -20,7 +24,10 @@ public class Magic : MonoBehaviour
 
     public bool Moving;
 
-    public Rigidbody Gripped = null;
+    public Rigidbody GrippedR = null;
+    public Rigidbody GrippedL = null;
+    public GameObject HeldR = null;
+    public GameObject HeldL = null;
     public GameObject beamParticlePrefab;
     public GameObject bladeParticlePrefab;
     public GameObject forceFieldParticlePrefab;
@@ -68,7 +75,12 @@ public class Magic : MonoBehaviour
 
     public GameObject LightningBlast;
     public GameObject FireBlast;
+    public GameObject IceSpike;
+    public GameObject IceWall;
     private float LightningTimer = 0f;
+
+    public Ray rayRight;
+    public Ray rayLeft;
 
     public float maxControllerDistance = 10f;
     public float LightningStrokeSpeed;
@@ -76,6 +88,7 @@ public class Magic : MonoBehaviour
     public string Gripper;
 
     public float forceMultiplier = 10f; // Adjust the force applied to the player
+    public float flightForceMultiplier = 20f;
     private Rigidbody rb;
     private float timer;
 
@@ -154,15 +167,15 @@ public class Magic : MonoBehaviour
             //Debug.Log("Current Left Hand Distance = " + LeftCenterDistance);
             
             LeftField.gravity = MapDistanceToGravity(distance, 5f);
-            LeftField.endRange = distance*20f;
-            RightField.endRange = distance * 20f;
+            LeftField.endRange = distance*30f;
+            RightField.endRange = distance * 30f;
         } else { LeftField.gravity = 0f; }
 
         if (Fire || Ice)
         {
             RightField.gravity = MapDistanceToGravity(distance, 5f);
-            RightField.endRange = distance*20f;
-            LeftField.endRange = distance * 20f;
+            RightField.endRange = 2f + distance*30f;
+            LeftField.endRange = 2f + distance*30f;
         } else { RightField.gravity = 0f; }
 
         HandleMagicGathering();
@@ -197,17 +210,23 @@ public class Magic : MonoBehaviour
             LightningGather.Stop();
             ForceGather.Stop();
         }
-        if (!OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+        if (!OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger)) 
         {
-            Gripped = null;
-            if(RtelekinesisPoint)
-            {
-                Destroy(RtelekinesisPoint.gameObject);
-            }
+            GrippedL = null;
+            HeldL = null;
             if(LtelekinesisPoint)
             {
                 Destroy(LtelekinesisPoint.gameObject);
             }    
+        }
+        if (!OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+        {
+            GrippedR = null;
+            HeldR = null;
+            if (RtelekinesisPoint)
+            {
+                Destroy(RtelekinesisPoint.gameObject);
+            }
         }
 
 
@@ -279,8 +298,10 @@ public class Magic : MonoBehaviour
         isLightning = Lightning;
         isForce = Force;
 
-        if(Gripped != null) { ProcessTelekinesisLogic(Gripped); }
-        LayerMask EyeMask = LayerMask.GetMask("Ground", "Enemies", "Walls");
+        if(GrippedL != null && GrippedR == null) { ProcessTelekinesisLogic(null, GrippedL); }
+        if(GrippedR != null && GrippedL == null) { ProcessTelekinesisLogic(GrippedR, null); }
+        if(GrippedL && GrippedR) { ProcessTelekinesisLogic(GrippedR, GrippedL); }
+        LayerMask EyeMask = LayerMask.GetMask("Ground", "Enemies", "Walls", "Default");
         Ray EyeRays = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
         RaycastHit hit1;
         if (Physics.Raycast(EyeRays, out hit1, Mathf.Infinity, EyeMask))
@@ -294,8 +315,14 @@ public class Magic : MonoBehaviour
         rb.AddForce(forceDirection.normalized * forceMultiplier, ForceMode.Force);
 
         Vector2 input2 = OVRInput.Get(OVRInput.Axis2D.SecondaryThumbstick);
-        Vector3 forceDirection2 = transform.up * input2.y*0.5f;
-        rb.AddForce(forceDirection2.normalized * forceMultiplier*2, ForceMode.Force);
+        float scalingFactor = Mathf.Abs(input2.y); // Use absolute value for scaling regardless of direction
+
+        // Optional: For more refined control, you can use a non-linear scale, like a quadratic scale
+        scalingFactor = scalingFactor * scalingFactor;
+
+        Vector3 forceDirection2 = transform.up * input2.y;
+        rb.AddForce(forceDirection2.normalized * flightForceMultiplier * scalingFactor, ForceMode.Force);
+
         if (forceDirection.magnitude > 0)
         {
             Moving = true;
@@ -331,6 +358,49 @@ public class Magic : MonoBehaviour
             }
 
         }
+        if (Ice && HandMotionTracker.RightHandSpeed > LightningStrokeSpeed && HandMotionTracker.SimplifiedRightHandDirection.Contains("Down"))
+        {
+            //New concept; you "strike" and an icicle appears, hovering in the air. You can drag it telekinetically, and it drops wall spikes everywhere you drag it (but only if there is no wall spike below it).
+            LayerMask mask = LayerMask.GetMask("Ground");
+            Ray IceSpikeRay = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+            RaycastHit hit;
+            if (Physics.Raycast(IceSpikeRay, out hit, Mathf.Infinity, mask) && LightningTimer < 0f)
+            {
+                GameObject Blammo;
+                Blammo = Instantiate(IceSpike, hit.point + new Vector3(0f,1f,0f), Quaternion.identity);
+                Blammo.GetComponent<Rigidbody>().velocity = new Vector3(0f, 0f, 0f);
+                LightningTimer = 1f;
+            }
+
+        }
+        /*        if (Ice && HandMotionTracker.RightHandSpeed*2f > LightningStrokeSpeed && HandMotionTracker.SimplifiedRightHandDirection.Contains("Right"))
+                {
+                    LayerMask mask = LayerMask.GetMask("Ground");
+                    Ray IceWallRay = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+                    RaycastHit hit;
+                    if (Physics.Raycast(IceWallRay, out hit, Mathf.Infinity, mask) && LightningTimer < 1f)
+                    {
+                        GameObject Wallo;
+                        Wallo = Instantiate(IceWall, hit.point, transform.rotation);
+                        Wallo.GetComponent<AutoPlace>().IsRight = true;
+                        LightningTimer = 1f;
+                    }
+
+                }
+                if (Ice && HandMotionTracker.RightHandSpeed * 2f > LightningStrokeSpeed && HandMotionTracker.SimplifiedRightHandDirection.Contains("Left"))
+                {
+                    LayerMask mask = LayerMask.GetMask("Ground");
+                    Ray IceWallRay = new Ray(CenterEyeTracker.transform.position, CenterEyeTracker.transform.forward);
+                    RaycastHit hit;
+                    if (Physics.Raycast(IceWallRay, out hit, Mathf.Infinity, mask) && LightningTimer < 1f)
+                    {
+                        GameObject Wallo;
+                        Wallo = Instantiate(IceWall, hit.point, transform.rotation);
+                        Wallo.GetComponent<AutoPlace>().IsRight = false;
+                        LightningTimer = 1f;
+                    }
+
+                }*/
         LightningTimer -= 1f * Time.deltaTime;
 
     }
@@ -501,7 +571,8 @@ public class Magic : MonoBehaviour
     private void HandleTelekinesisLogic()
     {
         //if (currentMagicState != MagicState.Idle && currentMagicState != MagicState.Telekinesing) return;
-        if (Gripped != null) return;
+        // if (GrippedL ) return;
+        if (Fire || Ice || Lightning || Force) return;
         LayerMask objectmask = LayerMask.GetMask("Objects", "Magic", "Default", "Enemies");
         // For the right hand
         Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
@@ -511,27 +582,37 @@ public class Magic : MonoBehaviour
         Ray rayLeft = new Ray(leftHand.transform.position, leftHand.transform.forward);
         RaycastHit hitLeft;
 
+
+
         // Process for the right hand
         if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, objectmask))
         {
-            Debug.DrawLine(rightHand.transform.position, hitRight.point, Color.red);
-            Gripper = "right";
-           // currentMagicState = MagicState.Telekinesing;    
-            Gripped = hitRight.collider.GetComponent<Rigidbody>();
+
+                Debug.DrawLine(rightHand.transform.position, hitRight.point, Color.red);
+                Gripper = "right";
+            // currentMagicState = MagicState.Telekinesing;    
+            if (!GrippedR)
+            {
+                GrippedR = hitRight.collider.GetComponent<Rigidbody>();
+            }
         }
         
          //Process for the left hand
        if (Physics.Raycast(rayLeft, out hitLeft, Mathf.Infinity, objectmask))
        {
-          Debug.DrawLine(leftHand.transform.position, hitLeft.point, Color.green);
-          Gripper = "left";
-          //currentMagicState = MagicState.Telekinesing;
-          Gripped = hitLeft.collider.GetComponent<Rigidbody>();
 
+                Debug.DrawLine(leftHand.transform.position, hitLeft.point, Color.green);
+                Gripper = "left";
+            //currentMagicState = MagicState.Telekinesing;
+            if (!GrippedL)
+            {
+                GrippedL = hitLeft.collider.GetComponent<Rigidbody>();
+            }
        }
     }
 
-    private void ProcessTelekinesisLogic(Rigidbody rb)
+
+    public void ProcessTelekinesisLogic(Rigidbody rb, Rigidbody lb)
     {
         // if (Gripped != null)
         // {
@@ -539,142 +620,185 @@ public class Magic : MonoBehaviour
         // } 
         // Rigidbody rb = hit.collider.GetComponent<Rigidbody>();
         if (rb)
-        {
-
-            if (Gripper == "right")
+        {//
+            if (rb.gameObject.GetComponent<EnemyController>())
             {
-                Vector3 direction;
-                float speed;
-                if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
+                rb.gameObject.GetComponent<EnemyController>().GoRagdoll();
+                rb.gameObject.GetComponent<EnemyController>().downtime = 10f;
+                rb = rb.gameObject.GetComponent<EnemyController>().secondaryRigidbody;
+            }
+        }
+        if (lb)
+        {
+            if (lb.gameObject.GetComponent<EnemyController>())
+            {
+                lb.gameObject.GetComponent<EnemyController>().GoRagdoll();
+                lb.gameObject.GetComponent<EnemyController>().downtime = 10f;
+                lb = lb.gameObject.GetComponent<EnemyController>().secondaryRigidbody;
+            }
+        }
+        if (GrippedR)
+        {
+            Vector3 HandGripPoint = rightHand.transform.position + (rightHand.transform.forward*rb.transform.gameObject.GetComponent<Collider>().bounds.extents.magnitude);
+            Vector3 direction;
+            float speed;
+            if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
+            {
+                if (!HeldR) HeldR = rb.transform.gameObject;
+                speed = 10f;
+                if (RtelekinesisPoint == null)
                 {
-                    direction = (RtelekinesisPoint.position - rb.transform.position);
-                    speed = 10f;
-                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
-                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
-                    
-                    if (RtelekinesisPoint == null)
-                    {
-                        RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude/2));
-                    }
-                    else
-                    {
-                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude/2));
-                    }
-                }
-                if (OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
-                {
-                    direction = (RtelekinesisPoint.position - rb.transform.position);
-                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
-                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
-                    speed = 10f;
-                    if (RtelekinesisPoint == null)
-                    {
-                        RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
-                    }
-                    else
-                    {
-                        RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
-                    }
-                }
-                if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
-                {
-                    rb.useGravity = false;
-                    //rb.velocity = Vector3.zero;
-                    // rb.angularVelocity = Vector3.zero;
+                    RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    RtelekinesisPoint.SetParent(rightHand.transform);
 
-                    if (RtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryHandTrigger))
-                    {
-                        RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        RtelekinesisPoint.SetParent(rightHand.transform);
-                        RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * (rb.transform.position - rightHand.transform.position).magnitude);
-                    }
-                    
-                    direction = (RtelekinesisPoint.position - rb.transform.position);
-                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
-                    rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
-                    LayerMask objectmask = LayerMask.GetMask("Enemies");
-                    // For the right hand
-                    Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
-                    RaycastHit hitRight;
-                    if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, objectmask) && hitRight.collider.GetComponent<Rigidbody>() != rb)
-                    {
-                        RtelekinesisPoint.position = hitRight.point;
-                        rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
-                    }
+                    RtelekinesisPoint.position = HandGripPoint + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude / 2));
                 }
-                if (RtelekinesisPoint && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
+                else
                 {
-                    rb.useGravity = true;
-                    Gripped = null;
-                    currentMagicState = MagicState.Idle;
-                    Destroy(RtelekinesisPoint.gameObject);
+                    RtelekinesisPoint.position = HandGripPoint + (rightHand.transform.forward * ((rb.transform.position - rightHand.transform.position).magnitude / 2));
+                }
+                direction = (RtelekinesisPoint.position - rb.transform.position);
+
+                rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+            }
+            if (OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
+            {
+                if (!HeldR) HeldR = rb.transform.gameObject;
+                speed = 10f;
+                if (RtelekinesisPoint == null)
+                {
+                    RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    RtelekinesisPoint.SetParent(rightHand.transform);
+                    RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
+                }
+                else
+                {
+                    RtelekinesisPoint.position = rb.transform.position + (rightHand.transform.forward * speed);
+                }
+                direction = (RtelekinesisPoint.position - rb.transform.position);
+                rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+
+            }
+            if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
+            {
+                if (!HeldR) HeldR = rb.transform.gameObject;
+                rb.useGravity = false;
+                //rb.velocity = Vector3.zero;
+                // rb.angularVelocity = Vector3.zero;
+
+                if (RtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryHandTrigger))
+                {
+                    RtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    RtelekinesisPoint.SetParent(rightHand.transform);
+                    RtelekinesisPoint.position = rightHand.transform.position + (rightHand.transform.forward * (rb.transform.position - rightHand.transform.position).magnitude);
+                }
+
+                direction = (RtelekinesisPoint.position - rb.transform.position);
+                rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
+                rb.drag = Mathf.Clamp(rb.drag, 10, 0 * (1 - (direction.magnitude / 100f)));
+                LayerMask objectmask = LayerMask.GetMask("Enemies");
+                // For the right hand
+                Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
+                RaycastHit hitRight;
+                if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, objectmask) && hitRight.collider.GetComponent<Rigidbody>() != rb)
+                {
+                    RtelekinesisPoint.position = hitRight.point;
+                    rb.AddForce(direction.normalized * Mathf.Clamp(direction.magnitude, 0, 10), ForceMode.VelocityChange);
                 }
             }
-            if (Gripper == "left")
+            if (RtelekinesisPoint && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
             {
-                Vector3 direction2;
-                float speed;
-                if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+                if (HeldR) HeldR = null;
+                rb.useGravity = true;
+                rb.drag = 0f;
+                GrippedR = null;
+                currentMagicState = MagicState.Idle;
+                Destroy(RtelekinesisPoint.gameObject);
+            }
+        }
+        if (GrippedL)
+        {
+            Vector3 direction2;
+            float speed;
+            if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+            {
+                if (!HeldL) HeldL = lb.transform.gameObject;
+                speed = 10f;
+                if (LtelekinesisPoint == null)
                 {
-                    direction2 = (LtelekinesisPoint.position - rb.transform.position);
-                    speed = 10f;
-                    rb.AddForce(direction2 * 5f, ForceMode.Force);
-                    if (LtelekinesisPoint == null)
-                    {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = leftHand.transform.position;
-                    }
-                    else
-                    {
-                        LtelekinesisPoint.position = leftHand.transform.position;
-                    }
+                    LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    LtelekinesisPoint.SetParent(leftHand.transform);
+                    LtelekinesisPoint.position = leftHand.transform.position + (leftHand.transform.forward * ((lb.transform.position - leftHand.transform.position).magnitude / 2));
                 }
-                if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger))
+                else
                 {
-                    direction2 = (LtelekinesisPoint.position - rb.transform.position);
-                    rb.AddForce(direction2 * 5f, ForceMode.Force);
-                    speed = 10f;
-                    if (LtelekinesisPoint == null)
-                    {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = rb.transform.position + (leftHand.transform.forward * speed);
-                    }
-                    else
-                    {
-                        LtelekinesisPoint.position = rb.transform.position + (leftHand.transform.forward * speed);
-                    }
+                    LtelekinesisPoint.position = leftHand.transform.position + (leftHand.transform.forward * ((lb.transform.position - leftHand.transform.position).magnitude / 2));
                 }
-                if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
-                {
-                    rb.useGravity = false;
-                    //rb.velocity = Vector3.zero;
-                    // rb.angularVelocity = Vector3.zero;
+                direction2 = (LtelekinesisPoint.position - lb.transform.position);
 
-                    if (LtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger))
-                    {
-                        LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
-                        LtelekinesisPoint.SetParent(leftHand.transform);
-                        LtelekinesisPoint.position = leftHand.transform.position + (leftHand.transform.forward * (rb.transform.position - leftHand.transform.position).magnitude);
-                    }
-                    direction2 = (LtelekinesisPoint.position - rb.transform.position);
-                    rb.AddForce(direction2 * 5f, ForceMode.Force);
-                }
-                if (LtelekinesisPoint && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+                lb.AddForce(direction2.normalized * Mathf.Clamp(direction2.magnitude, 0, 10), ForceMode.VelocityChange);
+                lb.drag = Mathf.Clamp(lb.drag, 10, 0 * (1 - (direction2.magnitude / 100f)));
+            }
+            if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger))
+            {
+                if (!HeldL) HeldL = lb.transform.gameObject;
+                speed = 10f;
+                if (LtelekinesisPoint == null)
                 {
-                    rb.useGravity = true;
-                    Gripped = null;
-                    currentMagicState = MagicState.Idle;
-                    Destroy(LtelekinesisPoint.gameObject);
+                    LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    LtelekinesisPoint.SetParent(leftHand.transform);
+                    LtelekinesisPoint.position = lb.transform.position + (leftHand.transform.forward * speed);
                 }
+                else
+                {
+                    LtelekinesisPoint.position = lb.transform.position + (leftHand.transform.forward * speed);
+                }
+                direction2 = (LtelekinesisPoint.position - lb.transform.position);
+                lb.AddForce(direction2.normalized * Mathf.Clamp(direction2.magnitude, 0, 10), ForceMode.VelocityChange);
+                lb.drag = Mathf.Clamp(lb.drag, 10, 0 * (1 - (direction2.magnitude / 100f)));
+
+            }
+            if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+            {
+                if (!HeldL) HeldL = lb.transform.gameObject;
+                lb.useGravity = false;
+                //lb.velocity = Vector3.zero;
+                // lb.angularVelocity = Vector3.zero;
+
+                if (LtelekinesisPoint == null || OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger))
+                {
+                    LtelekinesisPoint = new GameObject("TelekinesisPoint").transform;
+                    LtelekinesisPoint.SetParent(leftHand.transform);
+                    LtelekinesisPoint.position = leftHand.transform.position + (leftHand.transform.forward * (lb.transform.position - leftHand.transform.position).magnitude);
+                }
+
+                direction2 = (LtelekinesisPoint.position - lb.transform.position);
+                lb.AddForce(direction2.normalized * Mathf.Clamp(direction2.magnitude, 0, 10), ForceMode.VelocityChange);
+                lb.drag = Mathf.Clamp(lb.drag, 10, 0 * (1 - (direction2.magnitude / 100f)));
+                LayerMask objectmask = LayerMask.GetMask("Enemies");
+                // For the left hand
+                Ray rayleft = new Ray(leftHand.transform.position, leftHand.transform.forward);
+                RaycastHit hitleft;
+                if (Physics.Raycast(rayleft, out hitleft, Mathf.Infinity, objectmask) && hitleft.collider.GetComponent<Rigidbody>() != rb)
+                {
+                    LtelekinesisPoint.position = hitleft.point;
+                    lb.AddForce(direction2.normalized * Mathf.Clamp(direction2.magnitude, 0, 10), ForceMode.VelocityChange);
+                }
+            }
+            if (LtelekinesisPoint && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+            {
+                if (HeldL) HeldL = null;
+                lb.useGravity = true;
+                lb.drag = 0f;
+                GrippedL = null;
+                currentMagicState = MagicState.Idle;
+                Destroy(LtelekinesisPoint.gameObject);
             }
         }
     }
+    
 
     private void HandleLevitationLogic()
     {
@@ -682,28 +806,28 @@ public class Magic : MonoBehaviour
 
         // For the right hand
         LayerMask mask = LayerMask.GetMask("Ground");
-        Ray rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
+        rayRight = new Ray(rightHand.transform.position, rightHand.transform.forward);
         RaycastHit hitRight;
 
         // For the left hand
-        Ray rayLeft = new Ray(leftHand.transform.position, leftHand.transform.forward);
+        rayLeft = new Ray(leftHand.transform.position, leftHand.transform.forward);
         RaycastHit hitLeft;
 
         // Process for the right hand
         if (Physics.Raycast(rayRight, out hitRight, Mathf.Infinity, mask))
         {
-            if (RtelekinesisPoint == null && Gripped == null)
+            if (RtelekinesisPoint == null && GrippedR == null)
             {
-                ProcessLevitationLogic(hitRight);
+                ProcessRLevitationLogic(hitRight);
             }
         }
 
         // Process for the left hand
         if (Physics.Raycast(rayLeft, out hitLeft, Mathf.Infinity, mask))
         {
-            if (LtelekinesisPoint == null && Gripped == null)
+            if (LtelekinesisPoint == null && GrippedL == null)
             {
-                ProcessLevitationLogic(hitLeft);
+                ProcessLLevitationLogic(hitLeft);
             }
         }
     }
@@ -733,48 +857,22 @@ public class Magic : MonoBehaviour
  
     }
 
-    private void ProcessLevitationLogic(RaycastHit hit)
+    private void ProcessRLevitationLogic(RaycastHit Rhit)
     {
         if (currentMagicState != MagicState.Idle) return;
 
         Rigidbody playerRb = GetComponent<Rigidbody>();
         Vector3 direction;
-        //Left Hand Levitation
-        if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger))
-        {
-            direction = (playerRb.transform.position - hit.point).normalized;
-            playerRb.AddForce(direction*10f, ForceMode.Force);
-            playerRb.useGravity = false;
-        }
-        else if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
-        {
-            direction = (hit.point - playerRb.transform.position).normalized;
-            playerRb.AddForce(direction * 10f, ForceMode.Force);
-            playerRb.useGravity = false;
-        }
-        else if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
-        {
-            playerRb.useGravity = false;
-            if (Moving == false)
-            {
-                playerRb.velocity = Vector3.zero;
-            }
-        }
-        else if (!OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
-        {
-           // playerRb.velocity = Vector3.zero;
-            playerRb.useGravity = true;
-        }
         //Right Hand Levitation
         if (OVRInput.Get(OVRInput.Button.SecondaryHandTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger))
         {
-            direction = (playerRb.transform.position - hit.point).normalized;
+            direction = (playerRb.transform.position - Rhit.point).normalized;
             playerRb.AddForce(direction * 10f, ForceMode.Force);
             playerRb.useGravity = false;
         }
         else if (OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
         {
-            direction = (hit.point - playerRb.transform.position).normalized;
+            direction = (Rhit.point - playerRb.transform.position).normalized;
             playerRb.AddForce(direction * 10f, ForceMode.Force);
             playerRb.useGravity = false;
         }
@@ -787,6 +885,40 @@ public class Magic : MonoBehaviour
             }
         }
         else if (!OVRInput.Get(OVRInput.Button.SecondaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.SecondaryHandTrigger))
+        {
+            // playerRb.velocity = Vector3.zero;
+            playerRb.useGravity = true;
+        }
+
+    }
+    private void ProcessLLevitationLogic(RaycastHit Lhit)
+    {
+        if (currentMagicState != MagicState.Idle) return;
+
+        Rigidbody playerRb = GetComponent<Rigidbody>();
+        Vector3 direction;
+        //Left Hand Levitation
+        if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger))
+        {
+            direction = (playerRb.transform.position - Lhit.point).normalized;
+            playerRb.AddForce(direction * 10f, ForceMode.Force);
+            playerRb.useGravity = false;
+        }
+        else if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+        {
+            direction = (Lhit.point - playerRb.transform.position).normalized;
+            playerRb.AddForce(direction * 10f, ForceMode.Force);
+            playerRb.useGravity = false;
+        }
+        else if (OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
+        {
+            playerRb.useGravity = false;
+            if (Moving == false)
+            {
+                playerRb.velocity = Vector3.zero;
+            }
+        }
+        else if (!OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger) && !OVRInput.Get(OVRInput.Button.PrimaryHandTrigger))
         {
             // playerRb.velocity = Vector3.zero;
             playerRb.useGravity = true;

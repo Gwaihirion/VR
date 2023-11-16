@@ -30,6 +30,7 @@ public class EnemyController : MonoBehaviour
 
     [Header("Component References")]
     public Rigidbody rb;
+    public Rigidbody secondaryRigidbody;
     public Animator animator;
     public Collider mainCollider;
     public List<Rigidbody> ragdollRigidbodies;
@@ -238,13 +239,16 @@ public class EnemyController : MonoBehaviour
         Vector3 direction = targetPosition - transform.position;
         Vector3 flatDirection = new Vector3(direction.x, 0f, direction.z).normalized;
 
-        animator.SetBool("IsWalking", true);
+
         animator.SetBool("Attack", false);
 
         if (MonsterType == "Skeleton")
         {
             animator.SetFloat("speedh", 1f);
             animator.SetFloat("speedv", 1f);
+        } else
+        {
+            animator.SetBool("IsWalking", true);
         }
         RotateTowardsPlayer(direction);
         if (!animator.GetCurrentAnimatorStateInfo(0).IsName("Attack1h1"))
@@ -282,11 +286,15 @@ public class EnemyController : MonoBehaviour
     void Attack(GameObject destructible)
     {
         // Implement the attack logic specific to your game
-        animator.SetBool("IsWalking", false);
+
         if (MonsterType == "Skeleton")
         {
             animator.SetFloat("speedh", 0f);
             animator.SetFloat("speedv", 0f);
+        }
+        else
+        {
+            animator.SetBool("IsWalking", false);
         }
         animator.SetBool("Attack", true);
         RotateTowardsPlayer(currentTarget.transform.position - transform.position);
@@ -317,7 +325,7 @@ public class EnemyController : MonoBehaviour
         Destroy(gameObject, 10);
     }
 
-    private void GoRagdoll()
+    public void GoRagdoll()
     {
         animator.enabled = false;
         isRagdoll = true;

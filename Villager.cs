@@ -11,13 +11,19 @@ public class Villager : MonoBehaviour
     public Animator animator;
     public Wall MyHealth;
     public EnemyWaveManager Game;
+    public float checkRadius = 5f;
+    public int numDirections = 32;
 
-
+    private Collider mainCollider;
     private Rigidbody rb; // Rigidbody component for movement
     private Vector3 flatDirection;
+    public Vector3 colliderCenter;
+    public bool Obstacled;
 
     void Start()
     {//
+        mainCollider = gameObject.GetComponent<Collider>();
+        colliderCenter = mainCollider.bounds.center;
         maxVelocity = StartingMoveSpeed;
         Game = FindObjectOfType<EnemyWaveManager>();
         animator.SetInteger("VictoryStyle", Random.Range(1, 4));
@@ -28,10 +34,28 @@ public class Villager : MonoBehaviour
 
     void FixedUpdate()
     {
-        rb.velocity = Vector3.ClampMagnitude(rb.velocity, maxVelocity);
+        colliderCenter = mainCollider.bounds.center;
+        Vector3 currentVelocity = rb.velocity;
+        if (currentVelocity.magnitude > maxVelocity)
+        {
+            rb.velocity = currentVelocity.normalized * maxVelocity;
+        }
+        Collider[] obstacles = CheckForObstacles();
+        if (obstacles.Length > 0)
+        {
+            Obstacled = true;
+        } else { Obstacled = false; }
     }
 
-    void Update()
+Collider[] CheckForObstacles()
+{
+        int layerMask = LayerMask.GetMask("Walls", "Objects", "Enemies");
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, checkRadius, layerMask);
+        hitColliders = System.Array.FindAll(hitColliders, collider => collider != GetComponent<Collider>());
+
+        return hitColliders;
+    }
+void Update()
     {
        
         if(MyHealth.currentHealth < MyHealth.maxHealth/2)
@@ -58,23 +82,16 @@ public class Villager : MonoBehaviour
             animator.SetBool("Victory", false);
 
             // 4) Keep the villager always rotated to point in the direction of its current movement
-            if (moveDirection != Vector3.zero) // Avoid LookRotation with a zero vector
+            if (moveDirection.magnitude > 0.5f) // Avoid LookRotation with a zero vector
             {
                 Quaternion toRotation = Quaternion.LookRotation(new Vector3(rb.velocity.normalized.x, 0f, rb.velocity.normalized.z), Vector3.up);
                 transform.rotation = Quaternion.RotateTowards(transform.rotation, toRotation, 360 * Time.deltaTime);
             }
 
             // 3) Raytrace in the direction of the Villager's current movement
-            RaycastHit hit;
-            float radius = GetComponent<CapsuleCollider>().radius/2;
-            if (Physics.SphereCast(transform.position, radius, moveDirection, out hit, raycastLength, LayerMask.GetMask("Walls")))
+            if (Obstacled)
             {
-                // 3a) If the ray intersects with anything on the "Walls" layer
-                Vector3 perpDirection = Vector3.Cross(hit.normal, Vector3.up).normalized;
-                flatDirection = new Vector3(perpDirection.x, 0f, perpDirection.z).normalized;
-               // Vector3 Grav = new Vector3(0f, -1f, 0f);
-
-                // Make the Villager move perpendicular to the contact point's normal
+                flatDirection = FindLeastObstructedDirection();
                 if (!animator.GetCurrentAnimatorStateInfo(0).IsName("Turn to Run"))
                 {
                     rb.AddForce(flatDirection * moveSpeed, ForceMode.Force);
@@ -98,14 +115,58 @@ public class Villager : MonoBehaviour
                 animator.applyRootMotion = true;
                 animator.SetBool("Victory", true);
             }
+            else { animator.SetBool("Running", false); }
         }
+    }
+
+    Vector3 FindLeastObstructedDirection()
+    {
+        Collider[] obstacles = CheckForObstacles();
+        float[] totalDistancePerDirection = new float[numDirections];
+        bool[] hasEnemyInDirection = new bool[numDirections];
+        Vector3 leastObstructedDirection = Vector3.forward;
+        float maxTotalDistance = 0f;
+
+        for (int i = 0; i < numDirections; i++)
+        {
+            float angle = i * 360f / numDirections;
+            Vector3 direction = Quaternion.Euler(0, angle, 0) * Vector3.forward;
+
+            foreach (var obstacle in obstacles)
+            {
+                if (IsInDirection(obstacle, direction))
+                {
+                    float distance = Vector3.Distance(transform.position, obstacle.transform.position);
+                    totalDistancePerDirection[i] += distance;
+
+                    if (obstacle.gameObject.layer == LayerMask.NameToLayer("Enemies")) // Assuming enemies are on the "Enemies" layer
+                    {
+                        hasEnemyInDirection[i] = true;
+                    }
+                }
+            }
+
+            if (!hasEnemyInDirection[i] && totalDistancePerDirection[i] > maxTotalDistance)
+            {
+                maxTotalDistance = totalDistancePerDirection[i];
+                leastObstructedDirection = direction;
+            }
+        }
+
+        return leastObstructedDirection;
+    }
+    bool IsInDirection(Collider obstacle, Vector3 direction)
+    {
+        Vector3 toObstacle = obstacle.transform.position - transform.position;
+        float angleToObstacle = Vector3.Angle(direction, toObstacle);
+        return angleToObstacle <= (360f / numDirections) / 2;
     }
 
     GameObject FindClosestEnemyWithTag(string tag)
     {
         GameObject[] enemies = GameObject.FindGameObjectsWithTag(tag);
         GameObject closest = null;
-        float closestDistance = Mathf.Infinity;
+        float closestDistance = raycastLength;
         Vector3 position = transform.position;
 
         foreach (GameObject enemy in enemies)

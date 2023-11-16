@@ -12,13 +12,14 @@ public class Mote : MonoBehaviour
 
     void Start()
     {
+        moveSpeed = 0;
         rb = GetComponent<Rigidbody>(); // Cache the Rigidbody component.
         player = GameObject.FindGameObjectWithTag("Player"); // Find the Player object by tag.
     }
 
     void FixedUpdate()
     {
-        moveSpeed += 1.5f*Time.deltaTime;
+        moveSpeed += .5f*Time.deltaTime;
         MoveTowardsPlayer(); // Continuously move towards the Player.
     }
 
@@ -26,8 +27,8 @@ public class Mote : MonoBehaviour
     {
         if (player != null)
         {
-            Vector3 direction = (player.transform.position - transform.position).normalized; // Calculate direction to the Player.
-            rb.AddForce(direction * moveSpeed, ForceMode.VelocityChange); // Add force towards the Player's direction.
+            Vector3 direction = player.transform.position - transform.position; // Calculate direction to the Player.
+            rb.velocity = direction * moveSpeed; // Add force towards the Player's direction.
         }
     }
 

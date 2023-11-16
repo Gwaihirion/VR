@@ -16,10 +16,31 @@ public class PowerTower : MonoBehaviour
      if(Type == "Fire")
         {
             FireParticles.Play();
-            //IceParticles.Stop();
-            //LightningParticles.Stop();
-            //ForceParticles.Stop();
-        }    
+            IceParticles.Stop();
+            LightningParticles.Stop();
+            ForceParticles.Stop();
+        }
+        if (Type == "Ice")
+        {
+            FireParticles.Stop();
+            IceParticles.Play();
+            LightningParticles.Stop();
+            ForceParticles.Stop();
+        }
+        if (Type == "Lightning")
+        {
+            FireParticles.Stop();
+            IceParticles.Stop();
+            LightningParticles.Play();
+            ForceParticles.Stop();
+        }
+        if (Type == "Force")
+        {
+            FireParticles.Stop();
+            IceParticles.Stop();
+            LightningParticles.Stop();
+            ForceParticles.Play();
+        }
     }
 
     // Update is called once per frame
@@ -33,6 +54,36 @@ public class PowerTower : MonoBehaviour
         else
         {
             var ex = FireParticles.externalForces;
+            ex.enabled = false;
+        }
+        if (Type == "Ice" && Magic.isIce)
+        {
+            var ex = IceParticles.externalForces;
+            ex.enabled = true;
+        }
+        else
+        {
+            var ex = IceParticles.externalForces;
+            ex.enabled = false;
+        }
+        if (Type == "Lightning" && Magic.isLightning)
+        {
+            var ex = LightningParticles.externalForces;
+            ex.enabled = true;
+        }
+        else
+        {
+            var ex = LightningParticles.externalForces;
+            ex.enabled = false;
+        }
+        if (Type == "Force" && Magic.isForce)
+        {
+            var ex = ForceParticles.externalForces;
+            ex.enabled = true;
+        }
+        else
+        {
+            var ex = ForceParticles.externalForces;
             ex.enabled = false;
         }
     }
